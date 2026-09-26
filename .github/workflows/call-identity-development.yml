@@ -24,7 +24,7 @@ jobs:
           test -n "$simulator"
           xcodebuild test -project MuesliiOS.xcodeproj -scheme Muesli -destination "platform=iOS Simulator,id=$simulator" -derivedDataPath build/call-identity -only-testing:MuesliTests/CallIdentityModelTests -only-testing:MuesliTests/CallIdentityStoreTests -only-testing:MuesliTests/AutomaticCallContactWriterTests -only-testing:MuesliTests/CallIdentityCoordinatorTests -only-testing:MuesliTests/CallHistorySourceTests CODE_SIGNING_ALLOWED=NO
       - uses: actions/cache/save@v4
-        if: always() && steps.cache.outputs.cache-hit != 'true'
+        if: success() && steps.cache.outputs.cache-hit != 'true'
         with:
           path: build/call-identity
           key: ${{ steps.cache.outputs.cache-primary-key }}
