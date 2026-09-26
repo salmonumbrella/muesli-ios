@@ -60,4 +60,37 @@ final class CallIdentityStoreTests: XCTestCase {
         XCTAssertEqual(try calls.contactIntent(personID: root.id)?.state, .pending)
         XCTAssertThrowsError(try calls.mergeAlias(CallPersonAlias(fromID: root.id, rootID: p.id, revision: r)))
     }
+    func testOldRemovalCannotUndoHigherEpochRestore() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let calls = CallIdentityStore(store: SharedStore(containerURL: directory))
+        let h = try XCTUnwrap(CallIdentityNormalizer.email("caller@example.test"))
+        let p = try XCTUnwrap(calls.resolve(observation(h)).people.first)
+        let old = CallRevision(restoreEpoch: 0, counter: 9, deviceID: "fixture-device", provenance: .manual)
+        try calls.suppress(personID: p.id, recordName: nil, revision: old)
+        try calls.restore(personID: p.id,
+            revision: CallRevision(restoreEpoch: 1, counter: 10, deviceID: "fixture-device", provenance: .manual))
+        try calls.suppress(personID: p.id, recordName: nil, revision: old)
+        XCTAssertEqual(try calls.resolve(observation(h)).people.map(\.id), [p.id])
+    }
+
+    func testAliasPreservesRemovalBeforeAnyLinkAndReplaysSafely() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let calls = CallIdentityStore(store: SharedStore(containerURL: directory))
+        let h = try XCTUnwrap(CallIdentityNormalizer.email("other@example.test"))
+        let rootHandle = try XCTUnwrap(CallIdentityNormalizer.email("caller@example.test"))
+        let from = try XCTUnwrap(calls.resolve(observation(h)).people.first)
+        let root = try XCTUnwrap(calls.resolve(observation(rootHandle)).people.first)
+        let context = CallRecordingContext(recordName: "fixture-recording", generation: UUID(), source: .phone,
+            sourceFingerprint: "fixture", sourceCallID: nil, startedAt: Date())
+        let r = CallRevision(restoreEpoch: 0, counter: 9, deviceID: "fixture-device", provenance: .manual)
+        try calls.suppress(personID: from.id, recordName: context.recordName, revision: r)
+        let alias = CallPersonAlias(fromID: from.id, rootID: root.id, revision: r)
+        try calls.mergeAlias(alias)
+        XCTAssertFalse(try calls.bind([root.id], to: context))
+        try calls.mergeAlias(alias)
+        XCTAssertFalse(try calls.bind([root.id], to: context))
+    }
+
 }
