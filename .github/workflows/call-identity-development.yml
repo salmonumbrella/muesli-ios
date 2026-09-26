@@ -1,0 +1,30 @@
+name: Call identity development
+on:
+  workflow_dispatch:
+  pull_request:
+jobs:
+  contracts:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - uses: actions/cache/restore@v4
+        id: cache
+        with:
+          path: build/call-identity
+          key: call-identity-ios-26-6-${{ hashFiles('project.yml') }}-${{ github.sha }}
+          restore-keys: call-identity-ios-26-6-${{ hashFiles('project.yml') }}-
+      - name: Call identity tests
+        run: |
+          simulator=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /Shutdown|Booted/ { print $2; exit }')
+          test -n "$simulator"
+          xcodebuild test -project MuesliiOS.xcodeproj -scheme Muesli -destination "platform=iOS Simulator,id=$simulator" -derivedDataPath build/call-identity -only-testing:MuesliTests/CallIdentityModelTests -only-testing:MuesliTests/CallIdentityStoreTests -only-testing:MuesliTests/AutomaticCallContactWriterTests -only-testing:MuesliTests/CallIdentityCoordinatorTests -only-testing:MuesliTests/CallHistorySourceTests CODE_SIGNING_ALLOWED=NO
+      - uses: actions/cache/save@v4
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: build/call-identity
+          key: ${{ steps.cache.outputs.cache-primary-key }}
