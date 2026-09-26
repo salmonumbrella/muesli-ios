@@ -507,6 +507,23 @@ struct SharedStore: Sendable {
         return directory.appendingPathComponent("\(baseName)-\(UUID().uuidString).\(pathExtension)")
     }
 
+    func withCallIdentityDatabase<T>(_ body: (OpaquePointer?) throws -> T) throws -> T {
+        try database().withCallIdentityDatabase(body)
+    }
+
+    func ensureCallRecordingName(sessionID: UUID) throws -> String {
+        try withCallIdentityDatabase { db in
+            let calls = CallIdentityDatabase(db: db)
+            guard let row = try calls.rows("SELECT cloud_record_name FROM recording_sessions WHERE id=? AND deleted_at IS NULL", [sessionID.uuidString]).first else {
+                throw CallIdentityStoreError.invalidPayload
+            }
+            if let name = row[0], !name.isEmpty { return name }
+            let name = sessionID.uuidString
+            try calls.execute("UPDATE recording_sessions SET cloud_record_name=? WHERE id=?", [name, sessionID.uuidString])
+            return name
+        }
+    }
+
     private func database() throws -> SharedStoreDatabase {
         try SharedStoreDatabase(containerURL: containerURL(), encoder: encoder, decoder: decoder)
     }
@@ -1599,6 +1616,20 @@ private struct SharedStoreDatabase {
         }
     }
 
+    func withCallIdentityDatabase<T>(_ body: (OpaquePointer?) throws -> T) throws -> T {
+        try withDatabase { db in
+            try exec("BEGIN IMMEDIATE TRANSACTION", db: db)
+            do {
+                let result = try body(db)
+                try exec("COMMIT", db: db)
+                return result
+            } catch {
+                try? exec("ROLLBACK", db: db)
+                throw error
+            }
+        }
+    }
+
     private func withDatabase<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
         let access = try SharedStoreDatabaseAccess.begin()
         defer { access.finish() }
@@ -1639,6 +1670,8 @@ private struct SharedStoreDatabase {
         try backfillNormalizedColumns(db)
         try setUserVersion(Self.schemaVersion, db: db)
 
+        try CallIdentityDatabase.migrate(db)
+        try exec("UPDATE recording_sessions SET cloud_record_name=id WHERE deleted_at IS NULL AND (cloud_record_name IS NULL OR cloud_record_name='')", db: db)
         Self.initializedDatabasePaths.insert(databaseURL.path)
     }
 
