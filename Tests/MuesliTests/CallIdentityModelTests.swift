@@ -53,4 +53,12 @@ final class CallIdentityModelTests: XCTestCase {
             XCTAssertEqual(h.canonicalValue, "+1202555" + digits)
         }
     }
+    func testPortableFixtureDecodesAndRoundTrips() throws {
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "schema-v1", withExtension: "json"))
+        let observation = try JSONDecoder().decode(CallObservation.self, from: Data(contentsOf: url))
+        XCTAssertEqual(observation.source, .phone)
+        XCTAssertEqual(observation.handles.first?.stableKey, "phone|e164|+12025550123|")
+        XCTAssertEqual(try JSONDecoder().decode(CallObservation.self, from: JSONEncoder().encode(observation)), observation)
+    }
+
 }
